@@ -1,0 +1,22 @@
+{
+  "name": "eeg-task-scheduler",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prestart": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "start": "npm --prefix desktop start",
+    "predev": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1",
+    "build": "npm --prefix web run build && npm --prefix desktop run build",
+    "test": "uv run pytest -q",
+    "test:ui": "playwright test",
+    "test:all": "uv run pytest -q && playwright test",
+    "install:all": "npm --prefix web install && npm --prefix desktop install",
+    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "concurrently": "^9.1.2"
+  }
+}
+
