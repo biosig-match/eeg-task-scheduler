@@ -68,3 +68,20 @@ class RagStore:
             return [str(row["text"]) for row in rows]
         rows = self.database.query("SELECT text FROM memory_chunks ORDER BY created_at DESC LIMIT ?", (limit,))
         return [str(row["text"]) for row in rows]
+
+    def embeddings_for_ids(self, chunk_ids: list[str]) -> dict[str, list[float]]:
+        if self.collection is None or not chunk_ids:
+            return {}
+        try:
+            result = self.collection.get(ids=chunk_ids, include=["embeddings"])
+        except Exception:
+            return {}
+        ids = result.get("ids") or []
+        embeddings = result.get("embeddings")
+        if embeddings is None:
+            embeddings = []
+        return {
+            str(chunk_id): [float(value) for value in embedding]
+            for chunk_id, embedding in zip(ids, embeddings)
+            if embedding is not None
+        }

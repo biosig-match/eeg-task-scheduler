@@ -1,5 +1,7 @@
 ﻿import type { SessionResponse, StatusResponse } from "./types";
 
+import type { RagGraphResponse } from "./types";
+
 const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
 const backendUrl = window.eegDesktop?.backendUrl ?? viteEnv?.VITE_EEG_BACKEND_URL ?? "http://127.0.0.1:8766";
 const expectedRuntimeToken = window.eegDesktop?.runtimeToken ?? viteEnv?.VITE_EEG_RUNTIME_TOKEN ?? "";
@@ -110,6 +112,13 @@ export const api = {
   current: () => request<SessionResponse>("/api/session/current", undefined, 20_000, 5_000_000),
   session: (sessionId: string) =>
     request<SessionResponse>(`/api/session/${encodeURIComponent(sessionId)}`, undefined, 20_000, 12_000_000),
+  ragGraph: (sessionId?: string) =>
+    request<RagGraphResponse>(
+      `/api/rag/graph${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+      undefined,
+      20_000,
+      12_000_000,
+    ),
   start: (todo: string, useBle: boolean, notionTaskId?: string, notionProjectIds: string[] = []) =>
     request<{ session_id: string }>("/api/session/start", {
       method: "POST",

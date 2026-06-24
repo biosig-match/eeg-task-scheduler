@@ -24,6 +24,7 @@ from .eeg.protocol import DeviceConfig, EegSample
 from .gemini_client import GeminiClient
 from .notion_client import NotionClient
 from .rag import RagStore
+from .rag_graph import build_rag_graph
 from .session import SessionService, now_iso
 
 WEB_DIST = PROJECT_ROOT / "web" / "dist"
@@ -370,6 +371,11 @@ async def session_by_id(session_id: str) -> dict[str, object]:
     if result["session"] is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return result
+
+
+@app.get("/api/rag/graph")
+async def rag_graph(session_id: str | None = None) -> dict[str, object]:
+    return await asyncio.to_thread(build_rag_graph, database, rag, session_id)
 
 
 @app.post("/api/observations/screen")

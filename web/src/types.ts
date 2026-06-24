@@ -156,6 +156,44 @@ export type TaskPhaseRecord = {
   evidence: string;
 };
 
+export type RagGraphNode = {
+  id: string;
+  episode_id: number;
+  session_id: string;
+  started_at: string;
+  ended_at: string;
+  label: string;
+  severity: string;
+  active_window: string;
+  summary: string;
+  engagement: number | null;
+  workload: number | null;
+  x: number;
+  y: number;
+  z: number;
+  has_embedding: boolean;
+};
+
+export type RagGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  session_id: string;
+  focus_delta: number | null;
+  focus_up: boolean;
+  workload_delta: number | null;
+  workload_up: boolean;
+};
+
+export type RagGraphResponse = {
+  session_id: string | null;
+  embedding_backend: string;
+  node_count: number;
+  edge_count: number;
+  nodes: RagGraphNode[];
+  edges: RagGraphEdge[];
+};
+
 export type SessionResponse = {
   active: boolean;
   session: SessionRecord | null;

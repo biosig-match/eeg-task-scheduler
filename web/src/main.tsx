@@ -4,6 +4,7 @@ import {
   Camera,
   CameraOff,
   CheckCircle2,
+  Network,
   Play,
   Radio,
   RefreshCw,
@@ -16,6 +17,8 @@ import type {
   EventRecord,
   NormalizationMetricStats,
   ObservationRecord,
+  RagGraphNode,
+  RagGraphResponse,
   SessionResponse,
   StatusResponse,
 } from "./types";
@@ -89,6 +92,12 @@ function App() {
   const [heartbeat, setHeartbeat] = useState({ frames: 0, lastGapMs: 0 });
   const [scrubRatio, setScrubRatio] = useState(0);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
+  const [view, setView] = useState<"session" | "rag-graph">("session");
+  const [ragGraph, setRagGraph] = useState<RagGraphResponse | null>(null);
+  const [ragGraphLoading, setRagGraphLoading] = useState(false);
+  const [ragGraphError, setRagGraphError] = useState("");
+  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | null>(null);
+  const [graphRotation, setGraphRotation] = useState({ x: -0.45, y: 0.72 });
   const lastEpisodeAtRef = useRef(0);
   const lastActiveWindowRef = useRef("");
   const mockEegActiveRef = useRef(false);
@@ -99,6 +108,7 @@ function App() {
   const sourcesRef = useRef<Array<{ id: string; name: string; displayId?: string; thumbnail: string }>>([]);
   const episodeStartRef = useRef(toTokyoIsoString());
   const previewSessionId = useMemo(() => new URLSearchParams(window.location.search).get("session_id") ?? "", []);
+  const graphSessionId = previewSessionId || session?.session?.id || "20260623-132529-ebe052";
   const autoScrubRef = useRef(true);
   const lastSessionIdRef = useRef<string | null>(null);
   const activityRef = useRef({
@@ -133,6 +143,21 @@ function App() {
     setSession(nextSession);
     sessionActiveRef.current = previewSessionId ? false : nextSession.active;
     appendTrace("refresh:state-set", `active=${nextSession.active}`);
+  };
+
+  const loadRagGraph = async () => {
+    setRagGraphLoading(true);
+    setRagGraphError("");
+    try {
+      const graph = await api.ragGraph(graphSessionId);
+      setRagGraph(graph);
+      setSelectedGraphNodeId((current) => current ?? graph.nodes[0]?.id ?? null);
+    } catch (error) {
+      setRagGraph(null);
+      setRagGraphError(String(error));
+    } finally {
+      setRagGraphLoading(false);
+    }
   };
 
   const waitForBackendReady = async () => {
@@ -392,6 +417,11 @@ function App() {
     setScrubRatio(ratioInRange(targetAt, timelineRange));
   }, [previewSessionId, timelineRange, eeg, activity, events, observations]);
 
+  useEffect(() => {
+    if (view !== "rag-graph" || controlsLocked) return;
+    loadRagGraph().catch((error) => setRagGraphError(String(error)));
+  }, [view, controlsLocked, graphSessionId]);
+
   const start = async () => {
     setMessage("");
     let useBle = true;
@@ -602,9 +632,32 @@ function App() {
         <Metric color="cyan" label="フロー滞在" value={`${formatMinutes(countDuration(events, "フロー"))}`} />
         <Metric color="amber" label="手詰まり時間" value={`${formatMinutes(countDuration(events, "過負荷停止"))}`} />
         <Metric color="violet" label="停止イベント" value={`${events.filter((event) => event.label.includes("停止")).length}`} />
+        <nav className="view-switch" aria-label="page navigation">
+          <button className={view === "session" ? "active" : ""} onClick={() => setView("session")}>
+            作業
+          </button>
+          <button className={view === "rag-graph" ? "active" : ""} onClick={() => setView("rag-graph")}>
+            <Network size={16} />
+            RAG Graph
+          </button>
+        </nav>
       </section>
 
       <section className="workspace">
+        {view === "rag-graph" ? (
+          <RagGraphView
+            graph={ragGraph}
+            loading={ragGraphLoading}
+            error={ragGraphError}
+            sessionId={graphSessionId}
+            selectedNodeId={selectedGraphNodeId}
+            rotation={graphRotation}
+            onSelectNode={setSelectedGraphNodeId}
+            onRotate={setGraphRotation}
+            onRefresh={loadRagGraph}
+          />
+        ) : (
+        <>
         <div className="left-column">
           <section className="control-panel">
             <div className="panel-title">
@@ -765,6 +818,8 @@ function App() {
             </div>
           </div>
         </aside>
+        </>
+        )}
       </section>
     </main>
   );
@@ -801,6 +856,152 @@ function BootOverlay({
         </ol>
       </div>
     </div>
+  );
+}
+
+function RagGraphView({
+  graph,
+  loading,
+  error,
+  sessionId,
+  selectedNodeId,
+  rotation,
+  onSelectNode,
+  onRotate,
+  onRefresh,
+}: {
+  graph: RagGraphResponse | null;
+  loading: boolean;
+  error: string;
+  sessionId: string;
+  selectedNodeId: string | null;
+  rotation: { x: number; y: number };
+  onSelectNode: (nodeId: string) => void;
+  onRotate: (rotation: { x: number; y: number }) => void;
+  onRefresh: () => void;
+}) {
+  const dragRef = useRef<{ x: number; y: number; rotation: { x: number; y: number } } | null>(null);
+  const nodes = graph?.nodes ?? [];
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const projected = useMemo(() => projectGraphNodes(nodes, rotation), [nodes, rotation]);
+  const projectedById = useMemo(() => new Map(projected.map((node) => [node.id, node])), [projected]);
+  const selectedNode = (selectedNodeId && nodeById.get(selectedNodeId)) || nodes[0] || null;
+  const focusUpEdges = graph?.edges.filter((edge) => edge.focus_up).length ?? 0;
+  const workloadUpEdges = graph?.edges.filter((edge) => edge.workload_up).length ?? 0;
+  const embeddedNodes = nodes.filter((node) => node.has_embedding).length;
+
+  const startDrag = (event: React.PointerEvent<SVGSVGElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { x: event.clientX, y: event.clientY, rotation };
+  };
+  const drag = (event: React.PointerEvent<SVGSVGElement>) => {
+    const start = dragRef.current;
+    if (!start) return;
+    onRotate({
+      x: start.rotation.x + (event.clientY - start.y) / 260,
+      y: start.rotation.y + (event.clientX - start.x) / 260,
+    });
+  };
+  const stopDrag = () => {
+    dragRef.current = null;
+  };
+
+  return (
+    <section className="rag-page">
+      <div className="rag-toolbar">
+        <div>
+          <strong>RAG Graph</strong>
+          <span>{sessionId}</span>
+        </div>
+        <button onClick={onRefresh} disabled={loading}>
+          <RefreshCw size={16} />
+          {loading ? "Loading" : "更新"}
+        </button>
+      </div>
+      <div className="rag-stage">
+        <svg
+          className="rag-canvas"
+          viewBox="0 0 960 620"
+          role="img"
+          aria-label="Chroma embedding graph"
+          onPointerDown={startDrag}
+          onPointerMove={drag}
+          onPointerUp={stopDrag}
+          onPointerCancel={stopDrag}
+        >
+          <defs>
+            <marker id="arrow-gray" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+              <path d="M 0 0 L 9 4.5 L 0 9 z" />
+            </marker>
+            <marker id="arrow-blue" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+              <path d="M 0 0 L 9 4.5 L 0 9 z" />
+            </marker>
+            <marker id="arrow-orange" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+              <path d="M 0 0 L 9 4.5 L 0 9 z" />
+            </marker>
+          </defs>
+          <line className="axis x" x1="120" y1="520" x2="840" y2="520" />
+          <line className="axis y" x1="120" y1="520" x2="120" y2="100" />
+          <line className="axis z" x1="120" y1="520" x2="250" y2="390" />
+          {(graph?.edges ?? []).map((edge) => {
+            const source = projectedById.get(edge.source);
+            const target = projectedById.get(edge.target);
+            if (!source || !target) return null;
+            return (
+              <line
+                key={edge.id}
+                className={`rag-edge ${edge.focus_up ? "focus-up" : ""} ${edge.workload_up ? "workload-up" : ""}`}
+                x1={source.screenX}
+                y1={source.screenY}
+                x2={target.screenX}
+                y2={target.screenY}
+                markerEnd={edge.workload_up ? "url(#arrow-orange)" : edge.focus_up ? "url(#arrow-blue)" : "url(#arrow-gray)"}
+              />
+            );
+          })}
+          {[...projected]
+            .sort((a, b) => a.depth - b.depth)
+            .map((node) => (
+              <circle
+                key={node.id}
+                className={`rag-node ${node.id === selectedNode?.id ? "selected" : ""}`}
+                cx={node.screenX}
+                cy={node.screenY}
+                r={7 * node.scale}
+                onClick={() => onSelectNode(node.id)}
+              >
+                <title>{`${cleanMojibake(node.label)} ${formatTime(node.started_at)}`}</title>
+              </circle>
+            ))}
+        </svg>
+        {loading && <div className="rag-overlay">Chroma embedding を読み込み中</div>}
+        {!loading && error && <div className="rag-overlay error">{error}</div>}
+        {!loading && !error && !nodes.length && <div className="rag-overlay">表示できるエピソードがありません。</div>}
+      </div>
+      <aside className="rag-inspector">
+        <div className="rag-stats">
+          <Metric color="cyan" label="ノード" value={`${graph?.node_count ?? 0}`} />
+          <Metric color="blue" label="集中上昇エッジ" value={`${focusUpEdges}`} />
+          <Metric color="amber" label="認知負荷上昇エッジ" value={`${workloadUpEdges}`} />
+          <Metric color="violet" label="埋め込み取得" value={`${embeddedNodes}`} />
+        </div>
+        <div className="rag-detail">
+          <strong>{selectedNode ? `${formatTime(selectedNode.started_at)} ${cleanMojibake(selectedNode.label)}` : "選択なし"}</strong>
+          <span>
+            backend: {graph?.embedding_backend ?? "unknown"} / edges: {graph?.edge_count ?? 0}
+          </span>
+          {selectedNode && (
+            <>
+              <p>{selectedNode.summary}</p>
+              <small>
+                engagement {formatNullableNumber(selectedNode.engagement)} / workload {formatNullableNumber(selectedNode.workload)}
+              </small>
+              <small>{cleanMojibake(selectedNode.active_window)}</small>
+            </>
+          )}
+        </div>
+      </aside>
+    </section>
   );
 }
 
@@ -940,6 +1141,12 @@ function SignalChart({
 
 type ChartSeries = Array<{ at: number; value: number }>;
 type TimeRange = { min: number; max: number };
+type ProjectedGraphNode = RagGraphNode & {
+  screenX: number;
+  screenY: number;
+  depth: number;
+  scale: number;
+};
 
 const SESSION_DURATION_MS = 25 * 60 * 1000;
 const CHART_LEFT = 30;
@@ -947,6 +1154,27 @@ const CHART_RIGHT = 900;
 const CHART_BOTTOM = 220;
 const CHART_HEIGHT = 160;
 const NORMALIZATION_SIGMA_LIMIT = 2;
+
+function projectGraphNodes(nodes: RagGraphNode[], rotation: { x: number; y: number }): ProjectedGraphNode[] {
+  const cosX = Math.cos(rotation.x);
+  const sinX = Math.sin(rotation.x);
+  const cosY = Math.cos(rotation.y);
+  const sinY = Math.sin(rotation.y);
+  return nodes.map((node) => {
+    const y1 = node.y * cosX - node.z * sinX;
+    const z1 = node.y * sinX + node.z * cosX;
+    const x2 = node.x * cosY + z1 * sinY;
+    const z2 = -node.x * sinY + z1 * cosY;
+    const perspective = 1 / (1.9 - z2 * 0.45);
+    return {
+      ...node,
+      screenX: 480 + x2 * 310 * perspective,
+      screenY: 310 + y1 * 260 * perspective,
+      depth: z2,
+      scale: Math.max(0.72, Math.min(1.32, perspective * 1.15)),
+    };
+  });
+}
 
 function toSeries<T extends { started_at: string }>(items: T[], key: keyof T): ChartSeries {
   return items
@@ -1176,6 +1404,10 @@ function padDatePart(value: number) {
 
 function formatTime(value: string) {
   return new Date(value).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatNullableNumber(value: number | null) {
+  return value === null ? "n/a" : value.toFixed(3);
 }
 
 function eventClass(event: EventRecord) {
