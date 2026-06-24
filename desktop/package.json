@@ -4,10 +4,10 @@
   "private": true,
   "main": "main.js",
   "scripts": {
-    "prestart": "powershell -ExecutionPolicy Bypass -File ..\\scripts\\stop.ps1",
-    "start": "set ELECTRON_RUN_AS_NODE=& electron .",
-    "predev": "powershell -ExecutionPolicy Bypass -Command \"if (-not $env:EEG_BACKEND_URL) { & ..\\scripts\\stop.ps1 }\"",
-    "dev": "set ELECTRON_RUN_AS_NODE=& set EEG_WEB_DEV_URL=http://127.0.0.1:5173&& electron .",
+    "prestart": "node ../scripts/stop.js",
+    "start": "electron .",
+    "predev": "node -e \"if(!process.env.EEG_BACKEND_URL)require('child_process').execFileSync('node',['../scripts/stop.js'],{stdio:'inherit'})\"",
+    "dev": "electron .",
     "build": "node -e \"require('fs').accessSync('main.js'); require('fs').accessSync('preload.js');\""
   },
   "dependencies": {
