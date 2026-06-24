@@ -12,21 +12,39 @@ EEG，画面キャプチャ，キーボード・マウス操作量，Notion Todo
 
 Gemini API キーや Notion 設定がない場合も，ローカルのフォールバック処理で起動可能である．
 
+## 動作環境
+
+Windows および macOS で動作する．
+
+| 機能 | Windows | macOS |
+| --- | --- | --- |
+| Electron 起動・バックエンド自動起動 | ○ | ○ |
+| セッション記録・EEG 計測 | ○ | ○ |
+| グローバル入力監視（キー・マウス） | ○ | × |
+| アクティブウィンドウ取得 | ○ | × |
+
+グローバル入力監視とアクティブウィンドウ取得は PowerShell/Win32 API に依存しており，macOS では動作しない．主要機能（セッション記録，EEG 計測，画面キャプチャ，Notion 連携）は macOS でも利用できる．
+
 ## 起動
 
-初回セットアップ:
+### 初回セットアップ
 
-```powershell
+`web/dist` はリポジトリに含まれないため，初回は必ずフロントエンドのビルドが必要である．
+
+```bash
 uv sync --extra dev
 npm install
 npm run install:all
+npm --prefix web run build
 ```
 
-通常起動:
+### 通常起動
 
-```powershell
+```bash
 npm start
 ```
+
+Windows・macOS ともに同じコマンドで動作する．Electron 起動後にバックエンドが自動的に立ち上がり，ビルド済みの `web/dist` を配信する．
 
 `npm start` は Electron デスクトップアプリを起動する．`EEG_BACKEND_URL` が未指定の場合，Electron 側が `uv run eeg-task-scheduler` で FastAPI バックエンドを `127.0.0.1:8766` 以降の空きポートに立ち上げる．
 
